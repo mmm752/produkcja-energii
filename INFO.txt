@@ -1,0 +1,50 @@
+╔═══════════════════════════════════════════════════════════════════╗
+║                   PSE - Analiza Produkcji Energii                 ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+🚀 SZYBKI START
+═══════════════════════════════════════════════════════════════════
+
+1. Zainstaluj zależności:
+   ./run.sh install
+
+2. Uruchom interfejs interaktywny:
+   ./run.sh interactive
+
+3. Lub użyj szybkich komend:
+   ./run.sh suma 2026-01-01 2026-01-31
+   ./run.sh miesieczne 2020 2026
+   ./run.sh szereg 2026-01-01 2026-01-31 1D
+
+📚 DOKUMENTACJA
+═══════════════════════════════════════════════════════════════════
+
+📋 COMMANDS.md        - Pełna lista wszystkich komend i przykładów
+📖 README.md          - Główna dokumentacja projektu
+📁 docs/              - Szczegółowa dokumentacja techniczna
+   ├── API_EXAMPLES.md       - Przykłady użycia API
+   ├── QUICK_START.md        - Przewodnik dla początkujących
+   ├── NOTATKI_TECHNICZNE.md - Szczegóły techniczne
+   └── CHANGELOG.md          - Historia zmian
+
+🗂️ STRUKTURA
+═══════════════════════════════════════════════════════════════════
+
+src/                  - Główne moduły Python
+├── pse_energy_scraper.py     - Klasy do pobierania danych
+└── pse_energy_interactive.py - Interfejs interaktywny
+
+scripts/              - Skrypty pomocnicze
+├── quick.py          - Szybkie komendy
+└── examples.py       - Przykłady użycia
+
+wyniki/               - Folder z wygenerowanymi plikami
+
+💡 NAJWAŻNIEJSZE KOMENDY
+═══════════════════════════════════════════════════════════════════
+
+./run.sh help         - Wyświetl pomoc
+./run.sh interactive  - Uruchom menu interaktywne
+./run.sh test         - Sprawdź połączenie z API PSE
+
+Szczegóły: COMMANDS.md
