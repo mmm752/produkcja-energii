@@ -1,6 +1,23 @@
 ╔═══════════════════════════════════════════════════════════════════╗
-║                   PSE - Analiza Produkcji Energii                 ║
+║                   PSE + ENTSO-E - Analiza Energii                 ║
+║                        Wersja 1.4.0 (2026-01-19)                  ║
 ╚═══════════════════════════════════════════════════════════════════╝
+
+📊 POBIERANE DANE
+═══════════════════════════════════════════════════════════════════
+
+Z PSE (zawsze dostępne):
+✅ Sumaryczna generacja źródeł wiatrowych [MW]
+✅ Sumaryczna generacja źródeł fotowoltaicznych [MW]
+✅ Zapotrzebowanie na moc [MW]
+✅ Krajowe saldo wymiany międzysystemowej [MW]
+
+Z ENTSO-E (wymaga klucza API):
+✅ Węgiel kamienny, brunatny [MW]
+✅ Gaz [MW]
+✅ Woda, Biomasa, Magazyny energii [MW]
+
+Dane pobierane co 15 minut z oficjalnych API
 
 🚀 SZYBKI START
 ═══════════════════════════════════════════════════════════════════
@@ -8,11 +25,17 @@
 1. Zainstaluj zależności:
    ./run.sh install
 
-2. Uruchom interfejs interaktywny:
+2. (Opcjonalnie) Skonfiguruj klucz ENTSO-E:
+   - Zobacz: docs/ENTSOE_API_SETUP.md
+   - Skopiuj: cp .env.example .env
+   - Wklej klucz API do pliku .env
+
+3. Uruchom interfejs interaktywny:
    ./run.sh interactive
 
-3. Lub użyj szybkich komend:
+4. Lub użyj szybkich komend:
    ./run.sh suma 2026-01-01 2026-01-31
+   ./run.sh suma 2026-01-01 2026-01-31 --full  # Z ENTSO-E
    ./run.sh miesieczne 2020 2026
    ./run.sh szereg 2026-01-01 2026-01-31 1D
 

@@ -33,6 +33,9 @@ env/
 *.swo
 *~
 
+# Environment variables (API keys)
+.env
+
 # Pliki wyjściowe
 *.csv
 *.json

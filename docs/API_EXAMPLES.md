@@ -57,9 +57,11 @@ curl 'https://api.raporty.pse.pl/api/his-wlk-cal?$filter=business_date%20eq%20%2
 |------|------|-----|
 | `wi` | Moc wiatrowa | float [MW] |
 | `pv` | Moc fotowoltaiczna | float [MW] |
+| `demand` | Zapotrzebowanie na moc | float [MW] |
+| `swm_p` | Saldo wymiany międzysystemowej - równoległa | float [MW] |
+| `swm_np` | Saldo wymiany międzysystemowej - nierównoległa | float [MW] |
 | `dtime` | Data i czas (lokalny) | string |
 | `business_date` | Data biznesowa | string (YYYY-MM-DD) |
-| `demand` | Zapotrzebowanie | float [MW] |
 | `period` | Okres 15-minutowy | string |
 | `jg` | Generacja jednostek jrwa | float [MW] |
 

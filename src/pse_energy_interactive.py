@@ -13,11 +13,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from pse_energy_scraper import PSEEnergyDataFetcher, EnergyDataAnalyzer
 import json
 
+# Spróbuj zaimportować moduły ENTSO-E (opcjonalne)
+try:
+    from combined_energy_data import CombinedEnergyDataFetcher, CombinedEnergyDataAnalyzer
+    ENTSOE_AVAILABLE = True
+except ImportError:
+    ENTSOE_AVAILABLE = False
+
 
 def print_menu():
     """Wyświetla menu główne."""
     print("\n" + "=" * 70)
-    print("PSE - Analiza produkcji energii wiatrowej i fotowoltaicznej")
+    print("PSE + ENTSO-E - Analiza produkcji energii")
+    if ENTSOE_AVAILABLE:
+        print("✓ Tryb FULL: PSE + ENTSO-E (wszystkie źródła)")
+    else:
+        print("⚠  Tryb PSE: tylko podstawowe dane (brak klucza ENTSO-E)")
     print("=" * 70)
     print("\nWybierz opcję:")
     print("  1. Suma dla wybranego okresu")
@@ -82,16 +93,32 @@ def option_period_sum():
     
     print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
     
-    fetcher = PSEEnergyDataFetcher()
-    df = fetcher.fetch_data(date_from, date_to)
+    # Tryb combined (PSE + ENTSO-E) lub tylko PSE
+    use_combined = ENTSOE_AVAILABLE
+    
+    if use_combined:
+        try:
+            fetcher = CombinedEnergyDataFetcher()
+            df = fetcher.fetch_combined_data(date_from, date_to)
+            analyzer_class = CombinedEnergyDataAnalyzer
+        except Exception as e:
+            print(f"⚠️  Błąd trybu combined: {e}")
+            print("   Używam tylko danych PSE")
+            use_combined = False
+    
+    if not use_combined:
+        fetcher = PSEEnergyDataFetcher()
+        df = fetcher.fetch_data(date_from, date_to)
+        analyzer_class = EnergyDataAnalyzer
     
     if df is None or df.empty:
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
-        df = fetcher.generate_sample_data(date_from, date_to)
+        if not use_combined:
+            df = fetcher.generate_sample_data(date_from, date_to)
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     
-    analyzer = EnergyDataAnalyzer(df)
+    analyzer = analyzer_class(df)
     results = analyzer.sum_period()
     
     # Sprawdź czy są błędy
@@ -101,8 +128,66 @@ def option_period_sum():
     
     print("\n📈 WYNIKI:")
     print("-" * 70)
-    for key, value in results.items():
-        print(f"  {key:30s}: {value}")
+    print(f"Okres:              {results.get('okres_od')} - {results.get('okres_do')}")
+    print(f"Liczba pomiarów:    {results.get('liczba_pomiarów', 0)}")
+    
+    # Wyświetl wszystkie dostępne wskaźniki
+    # Najpierw sprawdź czy to tryb combined czy podstawowy
+    is_combined = 'wiatr_pse_suma_MW' in results
+    
+    if is_combined:
+        categories = {
+            'WIATR (PSE)': 'wiatr_pse',
+            'FOTOWOLTAIKA (PSE)': 'pv_pse',
+            'ZAPOTRZEBOWANIE': 'demand',
+            'SALDO WYMIANY': 'swm_total',
+            'WĘGIEL KAMIENNY': 'hard_coal',
+            'WĘGIEL BRUNATNY': 'lignite',
+            'GAZ': 'gas',
+            'WIATR (ENTSO-E)': 'wind_entsoe',
+            'SŁOŃCE (ENTSO-E)': 'solar_entsoe',
+            'WODA': 'hydro',
+            'MAGAZYNY ENERGII': 'storage',
+            'BIOMASA': 'biomass'
+        }
+    else:
+        # Tryb podstawowy PSE
+        categories = {
+            'WIATR': 'wiatr',
+            'FOTOWOLTAIKA': 'fotowoltaika',
+            'ZAPOTRZEBOWANIE': 'zapotrzebowanie',
+            'SALDO WYMIANY': 'saldo_wymiany'
+        }
+    
+    for category_name, key_prefix in categories.items():
+        suma_key = f'{key_prefix}_suma_MW'
+        mwh_key = f'{key_prefix}_MWh'
+        avg_key = f'{key_prefix}_średnia_MW'
+        
+        if suma_key in results and results.get(suma_key, 0) != 0:
+            print()
+            print(f"{category_name}:")
+            print(f"  Suma MW:          {results.get(suma_key, 0):,.2f} MW")
+            print(f"  Energia:          {results.get(mwh_key, 0):,.2f} MWh")
+            print(f"  Średnia:          {results.get(avg_key, 0):,.2f} MW")
+    
+    # Podsumowanie OZE (jeśli są dane)
+    if is_combined:
+        wiatr_sum = results.get('wiatr_pse_suma_MW', 0)
+        pv_sum = results.get('pv_pse_suma_MW', 0)
+        wiatr_mwh = results.get('wiatr_pse_MWh', 0)
+        pv_mwh = results.get('pv_pse_MWh', 0)
+    else:
+        wiatr_sum = results.get('wiatr_suma_MW', 0)
+        pv_sum = results.get('fotowoltaika_suma_MW', 0)
+        wiatr_mwh = results.get('wiatr_MWh', 0)
+        pv_mwh = results.get('fotowoltaika_MWh', 0)
+    
+    if wiatr_sum or pv_sum:
+        print()
+        print("RAZEM OZE (WIATR + FOTOWOLTAIKA):")
+        print(f"  Suma MW:          {wiatr_sum + pv_sum:,.2f} MW")
+        print(f"  Energia:          {wiatr_mwh + pv_mwh:,.2f} MWh")
     
     # Opcja zapisu
     save = input("\n💾 Czy zapisać wyniki do pliku? (t/n): ").strip().lower()
@@ -131,17 +216,32 @@ def option_monthly_sums():
     date_from = f"{year_from}-01-01"
     date_to = f"{year_to}-12-31"
     
-    fetcher = PSEEnergyDataFetcher()
-    df = fetcher.fetch_data(date_from, date_to)
+    # Tryb combined (PSE + ENTSO-E) lub tylko PSE
+    use_combined = ENTSOE_AVAILABLE
+    if use_combined:
+        try:
+            fetcher = CombinedEnergyDataFetcher()
+            df = fetcher.fetch_combined_data(date_from, date_to)
+            analyzer_class = CombinedEnergyDataAnalyzer
+        except Exception as e:
+            print(f"⚠️  Błąd trybu combined: {e}")
+            print("   Używam tylko danych PSE")
+            use_combined = False
+    
+    if not use_combined:
+        fetcher = PSEEnergyDataFetcher()
+        df = fetcher.fetch_data(date_from, date_to)
+        analyzer_class = EnergyDataAnalyzer
     
     if df is None or df.empty:
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
         # Dla przykładu generujemy tylko dla roku 2026
-        df = fetcher.generate_sample_data("2026-01-01", "2026-12-31")
+        if not use_combined:
+            df = fetcher.generate_sample_data("2026-01-01", "2026-12-31")
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     
-    analyzer = EnergyDataAnalyzer(df)
+    analyzer = analyzer_class(df)
     monthly = analyzer.monthly_sums(year_from, year_to)
     
     print("\n📈 MIESIĘCZNE SUMY (MW):")
@@ -187,16 +287,31 @@ def option_time_series():
     
     print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
     
-    fetcher = PSEEnergyDataFetcher()
-    df = fetcher.fetch_data(date_from, date_to)
+    # Tryb combined (PSE + ENTSO-E) lub tylko PSE
+    use_combined = ENTSOE_AVAILABLE
+    if use_combined:
+        try:
+            fetcher = CombinedEnergyDataFetcher()
+            df = fetcher.fetch_combined_data(date_from, date_to)
+            analyzer_class = CombinedEnergyDataAnalyzer
+        except Exception as e:
+            print(f"⚠️  Błąd trybu combined: {e}")
+            print("   Używam tylko danych PSE")
+            use_combined = False
+    
+    if not use_combined:
+        fetcher = PSEEnergyDataFetcher()
+        df = fetcher.fetch_data(date_from, date_to)
+        analyzer_class = EnergyDataAnalyzer
     
     if df is None or df.empty:
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
-        df = fetcher.generate_sample_data(date_from, date_to)
+        if not use_combined:
+            df = fetcher.generate_sample_data(date_from, date_to)
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     
-    analyzer = EnergyDataAnalyzer(df)
+    analyzer = analyzer_class(df)
     ts = analyzer.get_time_series(agg_freq)
     
     print(f"\n📈 SZEREG CZASOWY (agregacja: {agg_freq}):")
@@ -232,16 +347,31 @@ def option_full_analysis():
     
     print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
     
-    fetcher = PSEEnergyDataFetcher()
-    df = fetcher.fetch_data(date_from, date_to)
+    # Tryb combined (PSE + ENTSO-E) lub tylko PSE
+    use_combined = ENTSOE_AVAILABLE
+    if use_combined:
+        try:
+            fetcher = CombinedEnergyDataFetcher()
+            df = fetcher.fetch_combined_data(date_from, date_to)
+            analyzer_class = CombinedEnergyDataAnalyzer
+        except Exception as e:
+            print(f"⚠️  Błąd trybu combined: {e}")
+            print("   Używam tylko danych PSE")
+            use_combined = False
+    
+    if not use_combined:
+        fetcher = PSEEnergyDataFetcher()
+        df = fetcher.fetch_data(date_from, date_to)
+        analyzer_class = EnergyDataAnalyzer
     
     if df is None or df.empty:
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
-        df = fetcher.generate_sample_data(date_from, date_to)
+        if not use_combined:
+            df = fetcher.generate_sample_data(date_from, date_to)
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     
-    analyzer = EnergyDataAnalyzer(df)
+    analyzer = analyzer_class(df)
     
     # 1. Podsumowanie okresu
     print("📈 PODSUMOWANIE OKRESU:")

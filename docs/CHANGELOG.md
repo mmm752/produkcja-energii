@@ -1,5 +1,70 @@
 # Historia zmian
 
+## Wersja 1.4.0 (2026-01-19)
+
+### 🎉 Główne zmiany - Integracja ENTSO-E
+
+**Nowe źródło danych:**
+- ✅ Dodano integrację z ENTSO-E Transparency Platform
+- ✅ Nowa klasa `ENTSOEDataFetcher` do pobierania danych
+- ✅ Obsługa klucza API ENTSO-E (plik .env)
+- ✅ Parsowanie danych XML z ENTSO-E
+
+**Dodatkowe wskaźniki z ENTSO-E:**
+- ✅ Węgiel kamienny [MW]
+- ✅ Węgiel brunatny [MW]
+- ✅ Gaz [MW]
+- ✅ Woda [MW] (suma: przepływowa + zbiornikowa)
+- ✅ Magazyny energii [MW]
+- ✅ Biomasa [MW]
+- ✅ Wiatr lądowy [MW] (ENTSO-E)
+- ✅ Słońce [MW] (ENTSO-E)
+
+**Połączenie danych PSE + ENTSO-E:**
+- ✅ Nowa klasa `CombinedEnergyDataFetcher`
+- ✅ Nowa klasa `CombinedEnergyDataAnalyzer`
+- ✅ Automatyczne łączenie danych po timestamp
+- ✅ Graceful fallback do trybu PSE gdy ENTSO-E niedostępne
+
+**Ulepszenia skryptów:**
+- ✅ Flaga `--full` w quick.py dla pełnych danych
+- ✅ Automatyczne wykrywanie dostępności ENTSO-E
+- ✅ Wyswietlanie wszystkich dostępnych wskaźników
+
+**Dokumentacja:**
+- ✅ Nowy plik `docs/ENTSOE_API_SETUP.md` - instrukcja konfiguracji
+- ✅ Plik `.env.example` dla klucza API
+- ✅ Zaktualizowano README.md
+- ✅ Zaktualizowano COMMANDS.md
+- ✅ Dodano `.env` do `.gitignore`
+
+**Zależności:**
+- ✅ Dodano `python-dotenv>=1.0.0` do requirements.txt
+
+---
+
+## Wersja 1.3.0 (2026-01-19)
+
+### 🎉 Nowe funkcje
+
+**Rozszerzone pobieranie danych:**
+- ✅ Dodano pobieranie **Zapotrzebowania na moc [MW]** (`demand`)
+- ✅ Dodano pobieranie **Krajowego salda wymiany międzysystemowej [MW]** (suma `swm_p` + `swm_np`)
+- ✅ Automatyczne obliczanie sumy sald równoległych i nierównoległych
+- ✅ Wszystkie nowe wskaźniki dostępne we wszystkich funkcjach (suma, miesięczne, szereg czasowy)
+
+**Ulepszenia wyświetlania:**
+- ✅ Zaktualizowano skrypt `quick.py` o wyświetlanie nowych wskaźników
+- ✅ Dodano sekcje "ZAPOTRZEBOWANIE" i "SALDO WYMIANY MIĘDZYSYSTEMOWEJ" w wynikach
+- ✅ Interfejs interaktywny automatycznie pokazuje wszystkie dostępne wskaźniki
+
+**Dokumentacja:**
+- ✅ Zaktualizowano README.md o nowe wskaźniki
+- ✅ Zaktualizowano API_EXAMPLES.md o pola `demand`, `swm_p`, `swm_np`
+- ✅ Dodano generowanie przykładowych danych dla nowych wskaźników
+
+---
+
 ## Wersja 1.2.0 (2026-01-16)
 
 ### 🎉 Nowe funkcje

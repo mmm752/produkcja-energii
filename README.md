@@ -1,42 +1,79 @@
-# PSE - Skrypt do pobierania danych o produkcji energii
+# PSE + ENTSO-E - System pobierania danych o produkcji energii
 
-Skrypt do pobierania i analizowania danych o produkcji energii wiatrowej i fotowoltaicznej z portalu PSE.
-
-**Źródło danych**: Oficjalne API PSE v2 (https://api.raporty.pse.pl/api/his-wlk-cal)
+Kompleksowy system do pobierania i analizowania danych o produkcji energii w Polsce z dwóch źródeł:
+- **PSE** - dane rynkowe (API PSE v2)
+- **ENTSO-E** - szczegółowe dane o produkcji wg. typu źródła (Transparency Platform)
 
 ## 🎯 Funkcjonalności
 
 - ✅ Pobieranie danych co 15 minut dla wybranego okresu
+- ✅ **Dane z PSE**: wiatr, fotowoltaika, zapotrzebowanie, saldo wymiany
+- ✅ **Dane z ENTSO-E**: węgiel, gaz, woda, biomasa, magazyny energii
 - ✅ Sumowanie produkcji w MWh dla dowolnego zakresu dat
 - ✅ Generowanie miesięcznych sum od 2020 do teraz
-- ✅ Tworzenie szeregów czasowych z różną agregacją (godzinową, dzienną, tygodniową, miesięczną)
+- ✅ Tworzenie szeregów czasowych z różną agregacją
 - ✅ Eksport danych do CSV i JSON
 - ✅ Interaktywny interfejs użytkownika
 
-## 📊 Dane
+## 📊 Dostępne dane
 
-Skrypt pobiera następujące dane:
+### Z PSE API (dane rynkowe - zawsze dostępne):
 - **Sumaryczna generacja źródeł wiatrowych [MW]**
 - **Sumaryczna generacja źródeł fotowoltaicznych [MW]**
+- **Zapotrzebowanie na moc [MW]**
+- **Krajowe saldo wymiany międzysystemowej [MW]**
 
-Dane są dostępne z interwałem 15-minutowym.
+### Z ENTSO-E API (szczegółowa produkcja wg. źródła - wymaga klucza API):
+- **Węgiel kamienny [MW]** (Fossil Hard coal)
+- **Węgiel brunatny [MW]** (Fossil Brown coal/Lignite)
+- **Gaz [MW]** (Fossil Gas)
+- **Wiatr lądowy [MW]** (Wind Onshore)
+- **Słońce [MW]** (Solar)
+- **Woda [MW]** (suma: Hydro Run-of-river + Hydro Water Reservoir)
+- **Magazyny energii [MW]** (Energy storage)
+- **Biomasa [MW]** (Biomass)
+
+Dane z obu źródeł są pobierane z interwałem 15-minutowym.
+
+## 🔐 Konfiguracja API ENTSO-E (opcjonalne)
+
+Aby pobierać szczegółowe dane z ENTSO-E:
+
+1. Zarejestruj się na https://transparency.entsoe.eu/
+2. Pobierz klucz API (Account Settings -> Web API Security Token)
+3. Skopiuj plik `.env.example` jako `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+4. Wklej klucz API do pliku `.env`:
+   ```
+   ENTSOE_API_KEY=twój_klucz_api_tutaj
+   ```
+
+**📖 Szczegółowa instrukcja**: Zobacz [docs/ENTSOE_API_SETUP.md](docs/ENTSOE_API_SETUP.md)
+
+**⚠️  Bez klucza ENTSO-E** system będzie działał z ograniczonymi danymi (tylko PSE).
 
 ## � Struktura Projektu
 
 ```
 produkcja-energii/
 ├── src/                              # Główne moduły
-│   ├── pse_energy_scraper.py        # Główny moduł do pobierania danych
+│   ├── pse_energy_scraper.py        # Moduł PSE - dane rynkowe
+│   ├── entsoe_data_fetcher.py       # Moduł ENTSO-E - dane produkcji
+│   ├── combined_energy_data.py      # Łączenie PSE + ENTSO-E
 │   └── pse_energy_interactive.py    # Interfejs interaktywny
 ├── scripts/                          # Skrypty pomocnicze
 │   ├── quick.py                     # Szybkie komendy
 │   └── examples.py                  # Przykłady użycia
 ├── docs/                             # Dokumentacja
 │   ├── API_EXAMPLES.md              # Przykłady API
+│   ├── ENTSOE_API_SETUP.md          # Konfiguracja ENTSO-E ⭐
 │   ├── QUICK_START.md               # Szybki start
 │   ├── NOTATKI_TECHNICZNE.md        # Notatki techniczne
 │   └── CHANGELOG.md                 # Historia zmian
 ├── wyniki/                           # Wygenerowane pliki
+├── .env.example                      # Szablon dla klucza API
 ├── analiza_pse.ipynb                # Jupyter Notebook
 ├── run.sh                           # Główny skrypt uruchamiający ⭐
 ├── COMMANDS.md                      # Lista wszystkich komend ⭐
@@ -182,7 +219,7 @@ Skrypt akceptuje następujące formaty dat:
 ### Agregacja danych
 
 Dostępne opcje agregacji:
-- `1H` - co godzinę
+- `1h` lub `1H` - co godzinę
 - `1D` - co dzień
 - `1W` - co tydzień
 - `1M` - co miesiąc

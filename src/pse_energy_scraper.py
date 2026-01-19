@@ -124,12 +124,28 @@ class PSEEnergyDataFetcher:
             df.rename(columns={
                 'dtime': 'Data',
                 'wi': 'Sumaryczna generacja źródeł wiatrowych [MW]',
-                'pv': 'Sumaryczna generacja źródeł fotowoltaicznych [MW]'
+                'pv': 'Sumaryczna generacja źródeł fotowoltaicznych [MW]',
+                'demand': 'Zapotrzebowanie na moc [MW]',
+                'swm_p': 'Krajowe saldo wymiany międzysystemowej - równoległa [MW]',
+                'swm_np': 'Krajowe saldo wymiany międzysystemowej - nierównoległa [MW]'
             }, inplace=True)
+            
+            # Oblicz sumę sald wymiany międzysystemowej
+            swm_p_col = 'Krajowe saldo wymiany międzysystemowej - równoległa [MW]'
+            swm_np_col = 'Krajowe saldo wymiany międzysystemowej - nierównoległa [MW]'
+            
+            if swm_p_col in df.columns and swm_np_col in df.columns:
+                df['Krajowe saldo wymiany międzysystemowej [MW]'] = (
+                    df[swm_p_col].fillna(0) + df[swm_np_col].fillna(0)
+                )
             
             # Konwersja daty na datetime
             if 'Data' in df.columns:
                 df['Data'] = pd.to_datetime(df['Data'])
+                # PSE timestamp reprezentuje KONIEC przedziału (np. 00:15 = przedział 00:00-00:15)
+                # Przesuwamy o -15 minut aby timestamp reprezentował POCZĄTEK przedziału
+                # To umożliwia poprawne łączenie z danymi ENTSO-E
+                df['Data'] = df['Data'] - pd.Timedelta(minutes=15)
             
             return df
         
@@ -159,10 +175,28 @@ class PSEEnergyDataFetcher:
         solar_noise = np.random.normal(0, 200, len(date_range))
         solar_power = np.maximum(0, solar_base + solar_noise)
         
+        # Zapotrzebowanie - wyższe w dzień, niższe w nocy
+        demand_base = 16000 + 4000 * np.sin((hours - 12) * np.pi / 12)
+        demand_noise = np.random.normal(0, 500, len(date_range))
+        demand = np.maximum(8000, demand_base + demand_noise)
+        
+        # Saldo wymiany - może być dodatnie lub ujemne
+        swm_p_base = -500 + 1000 * np.sin((hours - 3) * np.pi / 12)
+        swm_p_noise = np.random.normal(0, 200, len(date_range))
+        swm_p = swm_p_base + swm_p_noise
+        
+        swm_np_base = 200 + 300 * np.sin((hours - 9) * np.pi / 12)
+        swm_np_noise = np.random.normal(0, 100, len(date_range))
+        swm_np = swm_np_base + swm_np_noise
+        
         df = pd.DataFrame({
             'Data': date_range,
             'Sumaryczna generacja źródeł wiatrowych [MW]': wind_power,
-            'Sumaryczna generacja źródeł fotowoltaicznych [MW]': solar_power
+            'Sumaryczna generacja źródeł fotowoltaicznych [MW]': solar_power,
+            'Zapotrzebowanie na moc [MW]': demand,
+            'Krajowe saldo wymiany międzysystemowej - równoległa [MW]': swm_p,
+            'Krajowe saldo wymiany międzysystemowej - nierównoległa [MW]': swm_np,
+            'Krajowe saldo wymiany międzysystemowej [MW]': swm_p + swm_np
         })
         
         return df
@@ -191,6 +225,10 @@ class EnergyDataAnalyzer:
         # Znajdź kolumny z danymi o wietrze i PV
         self.wind_col = self._find_column(['wiatr', 'wind'])
         self.solar_col = self._find_column(['fotowoltai', 'solar', 'pv', 'słoneczn'])
+        
+        # Znajdź kolumny z nowymi danymi
+        self.demand_col = self._find_column(['zapotrzebowanie', 'demand'])
+        self.swm_total_col = self._find_column(['krajowe saldo wymiany międzysystemowej [mw]'])
         
         if not self.wind_col:
             print("⚠️  Nie znaleziono kolumny z danymi o energii wiatrowej")
@@ -258,6 +296,24 @@ class EnergyDataAnalyzer:
             results['fotowoltaika_MWh'] = round(solar_mwh, 2)
             results['fotowoltaika_średnia_MW'] = round(solar_mean_mw, 2)
         
+        if self.demand_col:
+            demand_sum_mw = df_filtered[self.demand_col].sum()
+            demand_mwh = demand_sum_mw * 0.25
+            demand_mean_mw = df_filtered[self.demand_col].mean()
+            
+            results['zapotrzebowanie_suma_MW'] = round(demand_sum_mw, 2)
+            results['zapotrzebowanie_MWh'] = round(demand_mwh, 2)
+            results['zapotrzebowanie_średnia_MW'] = round(demand_mean_mw, 2)
+        
+        if self.swm_total_col:
+            swm_sum_mw = df_filtered[self.swm_total_col].sum()
+            swm_mwh = swm_sum_mw * 0.25
+            swm_mean_mw = df_filtered[self.swm_total_col].mean()
+            
+            results['saldo_wymiany_suma_MW'] = round(swm_sum_mw, 2)
+            results['saldo_wymiany_MWh'] = round(swm_mwh, 2)
+            results['saldo_wymiany_średnia_MW'] = round(swm_mean_mw, 2)
+        
         return results
     
     def monthly_sums(self, year_from: int = 2020, year_to: Optional[int] = None) -> pd.DataFrame:
@@ -279,9 +335,12 @@ class EnergyDataAnalyzer:
             (self.df.index.year <= year_to)
         ]
         
+        # Zbierz wszystkie dostępne kolumny do agregacji
+        cols_to_agg = [col for col in [self.wind_col, self.solar_col, self.demand_col, self.swm_total_col] if col]
+        
         # Sumy MW (bez przeliczania na MWh)
-        monthly = df_filtered.resample('M').agg({
-            col: 'sum' for col in [self.wind_col, self.solar_col] if col
+        monthly = df_filtered.resample('ME').agg({
+            col: 'sum' for col in cols_to_agg
         })
         
         monthly.index = monthly.index.to_period('M')
@@ -299,9 +358,9 @@ class EnergyDataAnalyzer:
         Returns:
             DataFrame z szeregiem czasowym
         """
-        cols_to_agg = [col for col in [self.wind_col, self.solar_col] if col]
+        cols_to_agg = [col for col in [self.wind_col, self.solar_col, self.demand_col, self.swm_total_col] if col]
         
-        if resample_freq in ['1H', 'H', '1D', 'D']:
+        if resample_freq in ['1h', 'h', '1D', 'D']:
             # Dla godzin i dni - suma z przeliczeniem na MWh
             ts = self.df[cols_to_agg].resample(resample_freq).agg(
                 lambda x: x.sum() * 0.25

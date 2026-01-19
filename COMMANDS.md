@@ -44,10 +44,20 @@ python3 src/pse_energy_interactive.py
 # Bezpośrednio
 python3 scripts/quick.py suma 2026-01-01 2026-01-31
 
+# Z pełnymi danymi (PSE + ENTSO-E) - wymaga klucza API
+python3 scripts/quick.py suma 2026-01-01 2026-01-31 --full
+
 # Przykłady:
 ./run.sh suma 2025-12-01 2025-12-31  # Cały grudzień 2025
 ./run.sh suma 2026-01-01 2026-01-16  # Od początku stycznia do dziś
 ```
+
+**Tryb --full pobiera dodatkowo z ENTSO-E:**
+- Węgiel kamienny i brunatny
+- Gaz
+- Wodę, Biomasę, Magazyny energii
+
+**Konfiguracja ENTSO-E:** Zobacz `docs/ENTSOE_API_SETUP.md`
 
 ### 2. Miesięczne sumy
 ```bash
@@ -71,7 +81,7 @@ python3 scripts/quick.py miesieczne 2020 2026
 python3 scripts/quick.py szereg 2026-01-01 2026-01-31 1D
 
 # Dostępne agregacje:
-./run.sh szereg 2026-01-01 2026-01-31 1H  # Co godzinę
+./run.sh szereg 2026-01-01 2026-01-31 1h  # Co godzinę (można również 1H)
 ./run.sh szereg 2026-01-01 2026-01-31 1D  # Co dzień
 ./run.sh szereg 2026-01-01 2026-01-31 1W  # Co tydzień
 ./run.sh szereg 2026-01-01 2026-01-31 1M  # Co miesiąc
