@@ -45,6 +45,9 @@ show_help() {
     echo "  ${GREEN}./run.sh test${NC}"
     echo "      Testuje połączenie z API PSE"
     echo ""
+    echo "  ${GREEN}./run.sh setup${NC}"
+    echo "      Konfiguruje klucz API ENTSO-E (dla trybu --full)"
+    echo ""
 }
 
 # Sprawdź czy Python jest zainstalowany
@@ -77,6 +80,43 @@ if df is not None and not df.empty:
 else:
     print('⚠️  Brak danych z API')
 "
+}
+
+# Konfiguracja ENTSO-E API
+setup_entsoe() {
+    echo -e "${GREEN}🔑 Konfiguracja ENTSO-E API${NC}"
+    echo ""
+    echo "Aby używać trybu --full z pełnymi danymi, potrzebujesz klucza API z:"
+    echo "https://transparency.entsoe.eu/"
+    echo ""
+    echo "Jak zdobyć klucz:"
+    echo "1. Zarejestruj się na stronie ENTSO-E"
+    echo "2. Zaloguj się i przejdź do 'Account Settings'"
+    echo "3. W sekcji 'Web API' kliknij 'Generate API key'"
+    echo "4. Skopiuj wygenerowany klucz"
+    echo ""
+    
+    if [ -f .env ]; then
+        echo -e "${YELLOW}⚠️  Plik .env już istnieje.${NC}"
+        read -p "Czy chcesz go nadpisać? (t/N): " overwrite
+        if [ "$overwrite" != "t" ] && [ "$overwrite" != "T" ]; then
+            echo "Anulowano."
+            return
+        fi
+    fi
+    
+    read -p "Podaj swój klucz ENTSO-E API (lub Enter aby pominąć): " api_key
+    
+    if [ -z "$api_key" ]; then
+        echo "Pominięto konfigurację ENTSO-E."
+        echo "Możesz ręcznie skopiować .env.example na .env i wpisać klucz."
+        return
+    fi
+    
+    echo "ENTSOE_API_KEY=$api_key" > .env
+    echo -e "${GREEN}✅ Klucz API został zapisany w pliku .env${NC}"
+    echo "Możesz teraz używać opcji --full w komendach"
+    echo "lub pełnych danych w trybie interaktywnym"
 }
 
 # Główna logika
@@ -136,6 +176,9 @@ case "$1" in
     test)
         check_python
         test_api
+        ;;
+    setup)
+        setup_entsoe
         ;;
     help|--help|-h|"")
         show_help

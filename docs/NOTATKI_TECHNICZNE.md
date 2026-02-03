@@ -49,8 +49,17 @@ Kompletna lista pól zwracanych przez API PSE:
 
 ### Ograniczenia API
 
-1. **Limit rekordów**: API zwraca maksymalnie ~100 rekordów na zapytanie
-2. **Rozwiązanie**: Skrypt automatycznie pobiera dane dzień po dniu dla długich okresów
+1. **Limit rekordów**: API zwraca maksymalnie ~100 rekordów na zapytanie OData
+   - 1 dzień = 96 pomiarów (co 15 min)
+   - Problem: zapytanie o 2+ dni zwraca tylko pierwsze 100 rekordów
+   - **UWAGA**: API PSE **NIE obsługuje** parametru `$top` - zwraca błąd 400!
+   
+2. **Rozwiązania zaimplementowane** (od wersji 2026-02-03):
+   - Automatyczne pobieranie dzień po dniu dla okresów > 1 dzień
+   - ~~Parametr `$top=200`~~ ❌ NIE DZIAŁA - API nie obsługuje
+   - Ostrzeżenia gdy wykryto możliwy limit (≥100 rekordów)
+   - Weryfikacja kompletności danych
+   
 3. **Opóźnienie danych**: Dane publikowane z opóźnieniem (zazwyczaj kilka godzin)
 
 ### Przykłady zapytań OData
@@ -58,17 +67,23 @@ Kompletna lista pól zwracanych przez API PSE:
 **Filtrowanie po dacie:**
 ```python
 $filter=business_date eq '2024-06-14'
+# ✅ Działa - zwraca 96 rekordów
 ```
 
 **Zakres dat:**
 ```python
 $filter=business_date ge '2024-06-01' and business_date le '2024-06-30'
+# ⚠️  UWAGA: dla >1 dnia użyj pobierania dzień po dniu!
+# Zwraca tylko ~100 pierwszych rekordów
 ```
 
-**Sortowanie:**
+**Parametr $top:**
 ```python
-$orderby=dtime desc
+$filter=business_date eq '2024-06-14'&$top=200
+# ❌ NIE DZIAŁA! Błąd 400: "Invalid Query Parameter: $top"
 ```
+
+**Uwaga**: Dla okresów dłuższych niż 1 dzień **zawsze** używaj metody pobierania dzień po dniu, aby uniknąć problemu z limitem 100 rekordów.
 
 ## 📊 Pełna struktura danych PSE
 

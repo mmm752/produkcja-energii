@@ -42,10 +42,11 @@ class PSEEnergyDataFetcher:
             end_date = datetime.strptime(date_to, '%Y-%m-%d')
             days_diff = (end_date - start_date).days + 1
             
-            # Dla długich okresów, pobieraj dane dzień po dniu
-            if days_diff > 7:
+            # ZAWSZE pobieraj dane dzień po dniu dla pewności (API PSE ma limit ~100 rekordów)
+            if days_diff > 1:
                 print(f"📥 Pobieranie danych dla {days_diff} dni...")
                 all_dfs = []
+                failed_days = []  # Śledź dni bez danych
                 
                 current_date = start_date
                 while current_date <= end_date:
@@ -54,6 +55,8 @@ class PSEEnergyDataFetcher:
                     
                     if df_day is not None and not df_day.empty:
                         all_dfs.append(df_day)
+                    else:
+                        failed_days.append(date_str)
                     
                     current_date += timedelta(days=1)
                     
@@ -61,38 +64,174 @@ class PSEEnergyDataFetcher:
                     if len(all_dfs) % 10 == 0:
                         print(f"  ✓ Pobrano {len(all_dfs)} dni...")
                 
+                # Raport o brakujących dniach
+                if failed_days:
+                    print(f"  ⚠️  Brak danych PSE dla {len(failed_days)} dni:")
+                    for day in failed_days[:10]:  # Pokaż max 10
+                        print(f"     - {day}")
+                    if len(failed_days) > 10:
+                        print(f"     ... i {len(failed_days) - 10} więcej")
+                
                 if all_dfs:
-                    return pd.concat(all_dfs, ignore_index=True)
+                    # Użyj concat z ignore_index=True, ale tylko jeśli mamy dane
+                    result = pd.concat([df for df in all_dfs if not df.empty], ignore_index=True)
+                    
+                    # Sprawdź duplikaty przed zwróceniem
+                    if not result.empty and 'Data' in result.columns:
+                        duplicates = result['Data'].duplicated().sum()
+                        if duplicates > 0:
+                            print(f"  ⚠️  Wykryto {duplicates} duplikatów w danych PSE")
+                            result = result.drop_duplicates(subset=['Data'], keep='first')
+                            print(f"     Usunięto duplikaty, pozostało {len(result)} rekordów")
+                    
+                    # Filtruj dane przyszłościowe (tylko do bieżącej godziny)
+                    result = self._filter_future_data(result)
+                    
+                    return result if not result.empty else None
                 else:
                     return None
             else:
                 # Dla krótkich okresów, jeden request
-                return self._fetch_date_range(date_from, date_to)
+                result = self._fetch_date_range(date_from, date_to)
+                # Filtruj dane przyszłościowe
+                return self._filter_future_data(result) if result is not None else None
             
         except Exception as e:
             print(f"❌ Błąd podczas pobierania danych: {e}")
             return None
     
-    def _fetch_single_day(self, date: str) -> Optional[pd.DataFrame]:
-        """Pobiera dane dla pojedynczego dnia."""
+    def _filter_future_data(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+        """
+        Filtruje dane prognostyczne - pozostawia tylko rzeczywiste pomiary.
+        API PSE czasem zwraca dane prognostyczne dla całego dnia.
+        
+        Zamiast filtrować według bieżącej godziny zegarowej, kod:
+        1. Sprawdza wartości w kolumnach (MW)
+        2. Znajduje ostatni rekord z rzeczywistymi danymi
+        3. Ucina dane prognostyczne po tym rekordzie
+        
+        Args:
+            df: DataFrame z danymi
+            
+        Returns:
+            DataFrame tylko z rzeczywistymi pomiarami (bez prognoz)
+        """
+        if df is None or df.empty:
+            return df
+            
+        if 'Data' not in df.columns:
+            return df
+        
+        try:
+            from datetime import datetime, timedelta
+            
+            # Sprawdź czy to dzisiejszy dzień
+            today = datetime.now().date()
+            if 'Data' in df.columns:
+                df_dates = pd.to_datetime(df['Data']).dt.date
+                has_today = any(d == today for d in df_dates)
+                
+                # Jeśli to tylko dane historyczne, nie filtruj
+                if not has_today:
+                    return df
+            
+            # Dla danych z dzisiejszym dniem - znajdź ostatni rzeczywisty pomiar
+            # API PSE zwraca komplet danych, ale najnowsze mogą być prognostyczne
+            
+            # Sortuj po dacie
+            df_sorted = df.sort_values('Data').copy()
+            
+            # Sprawdź kolumny z wartościami MW
+            value_columns = [col for col in df_sorted.columns if '[MW]' in col and col != 'Data']
+            
+            if not value_columns:
+                return df
+            
+            # Znajdź ostatni rekord gdzie wartości się zmieniają
+            # (prognozy często mają stałe lub zerowe wartości)
+            before_count = len(df_sorted)
+            
+            # Dla bezpieczeństwa - jeśli wszystkie dane są z przeszłości (>2h temu), zwróć wszystko
+            if 'Data' in df_sorted.columns:
+                last_timestamp = pd.to_datetime(df_sorted['Data'].iloc[-1])
+                now = pd.Timestamp.now()
+                
+                # Jeśli timezone-aware, usuń timezone dla porównania
+                if hasattr(last_timestamp, 'tz') and last_timestamp.tz is not None:
+                    last_timestamp = last_timestamp.tz_localize(None)
+                if hasattr(now, 'tz') and now.tz is not None:
+                    now = now.tz_localize(None)
+                
+                time_diff = (now - last_timestamp).total_seconds() / 3600  # godziny
+                
+                if time_diff > 2:
+                    # Dane są z przeszłości (>2h), zwróć wszystko
+                    return df
+                
+                # Jeśli to dane z ostatnich 2 godzin, ogranicz do teraz minus 15 min
+                # (API PSE ma opóźnienie publikacji)
+                cutoff_time = now - timedelta(minutes=15)
+                df_filtered = df_sorted[pd.to_datetime(df_sorted['Data']) <= cutoff_time].copy()
+                
+                after_count = len(df_filtered)
+                if after_count < before_count and after_count > 0:
+                    removed = before_count - after_count
+                    last_data_time = pd.to_datetime(df_filtered['Data'].iloc[-1])
+                    print(f"  ℹ️  Automatycznie odfiltrowano {removed} pomiarów z przyszłości")
+                    print(f"     (dane tylko do ostatniej aktualizacji PSE: {last_data_time.strftime('%Y-%m-%d %H:%M')})")
+                
+                return df_filtered
+        except Exception as e:
+            # Jeśli filtrowanie się nie powiodło, zwróć oryginalne dane
+            print(f"  ⚠️  Nie udało się odfiltrować danych przyszłościowych: {e}")
+            return df
+    
+    def _fetch_single_day(self, date: str, max_retries: int = 3) -> Optional[pd.DataFrame]:
+        """
+        Pobiera dane dla pojedynczego dnia z mechanizmem retry.
+        
+        Args:
+            date: Data w formacie YYYY-MM-DD
+            max_retries: Maksymalna liczba prób (domyślnie 3)
+            
+        Returns:
+            DataFrame z danymi lub None
+        """
         endpoint = f"{self.BASE_URL}/his-wlk-cal"
         odata_filter = f"business_date eq '{date}'"
         
         params = {'$filter': odata_filter}
         
-        try:
-            response = self.session.get(endpoint, params=params, timeout=30)
-            if response.status_code == 200:
-                data = response.json()
-                if data and 'value' in data and len(data['value']) > 0:
-                    return self._parse_data(data)
-        except Exception:
-            pass
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(endpoint, params=params, timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data and 'value' in data and len(data['value']) > 0:
+                        # Sprawdź czy nie trafiliśmy na limit API
+                        if len(data['value']) >= 100:
+                            print(f"  ⚠️  Uwaga: Otrzymano {len(data['value'])} rekordów dla {date} - możliwy limit API")
+                        return self._parse_data(data)
+                    else:
+                        # API zwróciło sukces, ale brak danych - nie retry
+                        return None
+                elif response.status_code >= 500:
+                    # Błąd serwera - spróbuj ponownie
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(1 * (attempt + 1))  # Exponential backoff
+                        continue
+            except Exception as e:
+                # Błąd sieci - spróbuj ponownie
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(1 * (attempt + 1))
+                    continue
         
         return None
     
     def _fetch_date_range(self, date_from: str, date_to: str) -> Optional[pd.DataFrame]:
-        """Pobiera dane dla zakresu dat (krótkiego okresu)."""
+        """Pobiera dane dla zakresu dat (krótkiego okresu - max 1 dzień)."""
         endpoint = f"{self.BASE_URL}/his-wlk-cal"
         odata_filter = f"business_date ge '{date_from}' and business_date le '{date_to}'"
         
@@ -104,6 +243,11 @@ class PSEEnergyDataFetcher:
             if response.status_code == 200:
                 data = response.json()
                 if data and 'value' in data and len(data['value']) > 0:
+                    # Sprawdź czy nie trafiliśmy na limit API
+                    if len(data['value']) >= 100:
+                        print(f"  ⚠️  OSTRZEŻENIE: Otrzymano dokładnie {len(data['value'])} rekordów!")
+                        print(f"     Prawdopodobnie trafiono na limit API PSE (~100 rekordów)")
+                        print(f"     Dane mogą być niepełne! Użyj pobierania dzień po dniu.")
                     return self._parse_data(data)
                 else:
                     print(f"⚠️  Brak danych dla okresu {date_from} - {date_to}")
@@ -141,11 +285,42 @@ class PSEEnergyDataFetcher:
             
             # Konwersja daty na datetime
             if 'Data' in df.columns:
-                df['Data'] = pd.to_datetime(df['Data'])
+                # Obsługa dni zmiany czasu - PSE API zwraca nieprawidłowy format jak "02a:15:00"
+                # dla godzin w czasie powtórzonym (zmiana czasu zimowego)
+                # Zachowujemy informację czy to "a" czy "b" w osobnej kolumnie
+                df['_dst_marker'] = ''
+                if df['Data'].dtype == 'object':
+                    # Wykryj czy to "a" czy "b" PRZED zamianą
+                    df.loc[df['Data'].str.contains(r'\d{2}a:', regex=True, na=False), '_dst_marker'] = 'first'
+                    df.loc[df['Data'].str.contains(r'\d{2}b:', regex=True, na=False), '_dst_marker'] = 'second'
+                    
+                    # Zastąp "02a:" i "02b:" przez "02:" - oba będą miały ten sam timestamp
+                    df['Data'] = df['Data'].str.replace(r'(\d{2})a:', r'\1:', regex=True)
+                    df['Data'] = df['Data'].str.replace(r'(\d{2})b:', r'\1:', regex=True)
+                
+                try:
+                    df['Data'] = pd.to_datetime(df['Data'], format='mixed')
+                except Exception as e:
+                    print(f"⚠️  Błąd parsowania dat: {e}")
+                    # Spróbuj bez strict format
+                    try:
+                        df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
+                        # Usuń wiersze gdzie data się nie sparsowała
+                        df = df.dropna(subset=['Data'])
+                    except Exception as e2:
+                        print(f"❌ Nie udało się sparsować dat: {e2}")
+                        return pd.DataFrame()
+                
                 # PSE timestamp reprezentuje KONIEC przedziału (np. 00:15 = przedział 00:00-00:15)
                 # Przesuwamy o -15 minut aby timestamp reprezentował POCZĄTEK przedziału
                 # To umożliwia poprawne łączenie z danymi ENTSO-E
                 df['Data'] = df['Data'] - pd.Timedelta(minutes=15)
+            
+            # Usuń duplikaty (mogą powstać przy łączeniu danych)
+            if 'Data' in df.columns:
+                duplicates = df['Data'].duplicated().sum()
+                if duplicates > 0:
+                    df = df.drop_duplicates(subset=['Data'], keep='first')
             
             return df
         
@@ -353,7 +528,7 @@ class EnergyDataAnalyzer:
         Generuje szereg czasowy z agregacją.
         
         Args:
-            resample_freq: Częstotliwość agregacji ('1H', '1D', '1W', '1M')
+            resample_freq: Częstotliwość agregacji ('1H', '1D', '1W', '1ME')
             
         Returns:
             DataFrame z szeregiem czasowym

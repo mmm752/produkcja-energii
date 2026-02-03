@@ -61,6 +61,8 @@ class ENTSOEDataFetcher:
         Pobiera dane o generacji energii dla wszystkich typów źródeł.
         UWAGA: Daty są interpretowane jako czas polski (Europe/Warsaw, UTC+1).
         
+        Dla długich okresów (>365 dni) automatycznie dzieli na mniejsze fragmenty.
+        
         Args:
             date_from: Data początkowa w formacie YYYY-MM-DD (w czasie polskim)
             date_to: Data końcowa w formacie YYYY-MM-DD (w czasie polskim)
@@ -69,22 +71,85 @@ class ENTSOEDataFetcher:
             DataFrame z danymi o generacji lub None w przypadku błędu
         """
         try:
+            dt_from = datetime.strptime(date_from, '%Y-%m-%d')
+            dt_to = datetime.strptime(date_to, '%Y-%m-%d')
+            
+            # Sprawdź czy okres jest dłuższy niż ~1 rok (limit API)
+            # API ENTSO-E zwykle ma limit 1 rok, więc dzielimy od 350+ dni dla bezpieczeństwa
+            days_diff = (dt_to - dt_from).days
+            
+            if days_diff > 350:
+                # Podziel na roczne fragmenty (max 365 dni każdy)
+                print(f"📥 Pobieranie danych ENTSO-E dla okresu {date_from} - {date_to}...")
+                print(f"   ⏳ Okres {days_diff} dni - dzielę na {(days_diff // 350) + 1} fragmenty...")
+                
+                all_chunks = []
+                current_date = dt_from
+                
+                while current_date < dt_to:
+                    chunk_end = min(current_date + timedelta(days=350), dt_to)
+                    chunk_from = current_date.strftime('%Y-%m-%d')
+                    chunk_to = chunk_end.strftime('%Y-%m-%d')
+                    
+                    print(f"   📦 Fragment: {chunk_from} - {chunk_to}")
+                    df_chunk = self._fetch_single_period(chunk_from, chunk_to)
+                    
+                    if df_chunk is not None and not df_chunk.empty:
+                        all_chunks.append(df_chunk)
+                    
+                    current_date = chunk_end + timedelta(days=1)
+                
+                if all_chunks:
+                    df_combined = pd.concat(all_chunks, ignore_index=True)
+                    # Usuń duplikaty (może być na styku okresów)
+                    df_combined = df_combined.drop_duplicates(subset=['Data']).reset_index(drop=True)
+                    print(f"✓ Pobrano łącznie {len(df_combined)} rekordów z ENTSO-E")
+                    return df_combined
+                else:
+                    print("⚠️  Brak danych z ENTSO-E")
+                    return None
+            else:
+                # Pojedyncze zapytanie dla krótkiego okresu
+                print(f"📥 Pobieranie danych ENTSO-E dla okresu {date_from} - {date_to}...")
+                return self._fetch_single_period(date_from, date_to)
+                
+        except Exception as e:
+            print(f"❌ Błąd podczas pobierania danych z ENTSO-E: {e}")
+            return None
+    
+    def _fetch_single_period(self, date_from: str, date_to: str) -> Optional[pd.DataFrame]:
+        """
+        Pobiera dane dla pojedynczego okresu (maksymalnie 1 rok).
+        
+        Args:
+            date_from: Data początkowa w formacie YYYY-MM-DD
+            date_to: Data końcowa w formacie YYYY-MM-DD
+            
+        Returns:
+            DataFrame z danymi lub None
+        """
+        try:
             # Konwersja dat do formatu ENTSO-E (YYYYMMDDHHMM)
             # Dla czasu polskiego (UTC+1) musimy pobrać dane od UTC-1
             dt_from = datetime.strptime(date_from, '%Y-%m-%d')
             dt_to = datetime.strptime(date_to, '%Y-%m-%d')
             
-            # Dla pojedynczego dnia w czasie polskim:
-            # 2026-01-01 00:00 CET = 2025-12-31 23:00 UTC
-            # 2026-01-01 23:45 CET = 2026-01-01 22:45 UTC
-            # Więc musimy pobrać od poprzedniego dnia 23:00 UTC
-            dt_from_utc = dt_from - timedelta(hours=1)  # -1h dla UTC+1
-            dt_to_utc = dt_to + timedelta(days=1) - timedelta(hours=1)  # następny dzień -1h
+            # Dla pojedynczego dnia w czasie polskim musimy uwzględnić offset UTC
+            # CEST (lato): UTC+2, więc 00:00 CEST = 22:00 UTC poprzedniego dnia
+            # CET (zima): UTC+1, więc 00:00 CET = 23:00 UTC poprzedniego dnia
+            import pytz
+            poland_tz = pytz.timezone('Europe/Warsaw')
+            
+            # Sprawdź offset UTC dla początku okresu
+            dt_from_local = poland_tz.localize(dt_from)
+            utc_offset_hours = int(dt_from_local.utcoffset().total_seconds() / 3600)
+            
+            # Pobierz dane z odpowiednim offsetem
+            dt_from_utc = dt_from - timedelta(hours=utc_offset_hours)
+            dt_to_utc = dt_to + timedelta(days=1) - timedelta(hours=utc_offset_hours)
             
             period_start = dt_from_utc.strftime('%Y%m%d%H%M')
             period_end = dt_to_utc.strftime('%Y%m%d%H%M')
-            
-            print(f"📥 Pobieranie danych ENTSO-E dla okresu {date_from} - {date_to}...")
             
             # Parametry zapytania
             params = {
@@ -102,20 +167,21 @@ class ENTSOEDataFetcher:
                 # Parsuj XML
                 df = self._parse_xml_response(response.content, date_from, date_to)
                 if df is not None and not df.empty:
-                    print(f"✓ Pobrano {len(df)} rekordów z ENTSO-E")
                     return df
                 else:
-                    print("⚠️  Brak danych z ENTSO-E")
                     return None
             elif response.status_code == 401:
                 print("❌ Błąd autoryzacji - sprawdź klucz API ENTSO-E")
+                return None
+            elif response.status_code == 400:
+                print(f"⚠️  Błąd 400 - okres może być zbyt długi lub dane niedostępne")
                 return None
             else:
                 print(f"⚠️  Błąd API ENTSO-E: {response.status_code}")
                 return None
                 
         except Exception as e:
-            print(f"❌ Błąd podczas pobierania danych z ENTSO-E: {e}")
+            print(f"⚠️  Błąd podczas pobierania fragmentu: {e}")
             return None
     
     def _parse_xml_response(self, xml_content: bytes, date_from: str, date_to: str) -> Optional[pd.DataFrame]:
@@ -225,18 +291,9 @@ class ENTSOEDataFetcher:
             df_pivot['Data'] = pd.to_datetime(df_pivot['Data'])
             df_pivot['Data'] = df_pivot['Data'].dt.tz_convert('Europe/Warsaw')
             
-            # Filtruj do żądanego zakresu dat w czasie polskim
-            if date_from == date_to:
-                # Pojedynczy dzień w czasie polskim
-                import pytz
-                poland_tz = pytz.timezone('Europe/Warsaw')
-                start_datetime = poland_tz.localize(datetime.strptime(date_from, '%Y-%m-%d'))
-                end_datetime = start_datetime + timedelta(days=1)
-                
-                df_pivot = df_pivot[
-                    (df_pivot['Data'] >= start_datetime) & 
-                    (df_pivot['Data'] < end_datetime)
-                ].copy()
+            # USUNIĘTO filtrowanie po dacie - pobieramy wszystkie dane z API
+            # API już zwraca dane dla żądanego okresu (period_start/period_end)
+            # Dodatkowe filtrowanie powodowało utratę godziny 0 (00:00-00:45)
             
             return df_pivot
             

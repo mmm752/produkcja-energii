@@ -15,9 +15,19 @@ import json
 
 # Spróbuj zaimportować moduły ENTSO-E (opcjonalne)
 try:
-    from combined_energy_data import CombinedEnergyDataFetcher, CombinedEnergyDataAnalyzer
+    from combined_energy_data import (
+        CombinedEnergyDataFetcher, 
+        CombinedEnergyDataAnalyzer,
+        validate_data_continuity,
+        print_data_quality_report
+    )
     ENTSOE_AVAILABLE = True
 except ImportError:
+    ENTSOE_AVAILABLE = False
+
+# Sprawdź czy klucz ENTSO-E jest dostępny
+ENTSOE_API_KEY = os.getenv("ENTSOE_API_KEY")
+if ENTSOE_AVAILABLE and not ENTSOE_API_KEY:
     ENTSOE_AVAILABLE = False
 
 
@@ -25,10 +35,18 @@ def print_menu():
     """Wyświetla menu główne."""
     print("\n" + "=" * 70)
     print("PSE + ENTSO-E - Analiza produkcji energii")
-    if ENTSOE_AVAILABLE:
+    if ENTSOE_AVAILABLE and ENTSOE_API_KEY:
         print("✓ Tryb FULL: PSE + ENTSO-E (wszystkie źródła)")
+        print("  Dostępne: węgiel, gaz, woda, biomasa, magazyny energii")
     else:
-        print("⚠  Tryb PSE: tylko podstawowe dane (brak klucza ENTSO-E)")
+        print("⚠  Tryb PSE: tylko podstawowe dane (wiatr, słońce, zapotrzebowanie)")
+        print("")
+        print("  Aby włączyć pełny tryb z ENTSO-E:")
+        print("  1. Zarejestruj się na: https://transparency.entsoe.eu/")
+        print("  2. Wygeneruj klucz API w ustawieniach konta")
+        print("  3. Skopiuj .env.example na .env i wpisz klucz")
+        print("     lub uruchom: ./run.sh setup")
+        print("  4. Uruchom ponownie ten skrypt")
     print("=" * 70)
     print("\nWybierz opcję:")
     print("  1. Suma dla wybranego okresu")
@@ -91,10 +109,19 @@ def option_period_sum():
         print(f"\n⚠️  BŁĄD walidacji dat: {e}")
         return
     
-    print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
-    
     # Tryb combined (PSE + ENTSO-E) lub tylko PSE
-    use_combined = ENTSOE_AVAILABLE
+    use_combined = ENTSOE_AVAILABLE and ENTSOE_API_KEY
+    
+    if use_combined:
+        print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
+        print("   Tryb: PSE + ENTSO-E (pełne dane)")
+    else:
+        print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
+        print("   Tryb: tylko PSE (podstawowe dane)")
+    
+    df = None
+    fetcher = None
+    analyzer_class = None
     
     if use_combined:
         try:
@@ -105,16 +132,28 @@ def option_period_sum():
             print(f"⚠️  Błąd trybu combined: {e}")
             print("   Używam tylko danych PSE")
             use_combined = False
+            df = None
     
     if not use_combined:
         fetcher = PSEEnergyDataFetcher()
         df = fetcher.fetch_data(date_from, date_to)
         analyzer_class = EnergyDataAnalyzer
     
-    if df is None or df.empty:
+    # Sprawdź czy udało się pobrać dane
+    if df is None or (hasattr(df, 'empty') and df.empty):
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
-        if not use_combined:
-            df = fetcher.generate_sample_data(date_from, date_to)
+        # Upewnij się że mamy PSEEnergyDataFetcher do generowania przykładowych danych
+        if not isinstance(fetcher, PSEEnergyDataFetcher):
+            fetcher = PSEEnergyDataFetcher()
+            analyzer_class = EnergyDataAnalyzer
+        df = fetcher.generate_sample_data(date_from, date_to)
+        
+        # Sprawdź czy generowanie przykładowych danych się powiodło
+        if df is None or df.empty:
+            print("\n❌ Błąd: Nie udało się wygenerować danych")
+            print("Naciśnij Enter aby kontynuować...")
+            input()
+            return
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     
@@ -209,15 +248,19 @@ def option_monthly_sums():
     year_to = input(f"Podaj rok końcowy [{datetime.now().year}]: ").strip()
     year_to = int(year_to) if year_to else datetime.now().year
     
-    print(f"\n📥 Pobieranie danych dla lat {year_from}-{year_to}...")
-    print("⚠️  Uwaga: Pobieranie danych dla wielu lat może zająć trochę czasu...")
-    
     # Pobierz dane dla całego okresu
     date_from = f"{year_from}-01-01"
     date_to = f"{year_to}-12-31"
     
     # Tryb combined (PSE + ENTSO-E) lub tylko PSE
-    use_combined = ENTSOE_AVAILABLE
+    use_combined = ENTSOE_AVAILABLE and ENTSOE_API_KEY
+    
+    print(f"\n📥 Pobieranie danych dla lat {year_from}-{year_to}...")
+    if use_combined:
+        print("   Tryb: PSE + ENTSO-E (pełne dane)")
+    else:
+        print("   Tryb: tylko PSE (podstawowe dane)")
+    print("⚠️  Uwaga: Pobieranie danych dla wielu lat może zająć trochę czasu...")
     if use_combined:
         try:
             fetcher = CombinedEnergyDataFetcher()
@@ -280,15 +323,31 @@ def option_time_series():
     print("  2. Co dzień (1D)")
     print("  3. Co tydzień (1W)")
     print("  4. Co miesiąc (1M)")
+    print("  Lub wpisz: H, D, W, M")
     
-    agg_choice = input("Wybór [2]: ").strip()
-    agg_map = {'1': '1H', '2': '1D', '3': '1W', '4': '1M'}
+    agg_choice = input("Wybór [2]: ").strip().upper()
+    agg_map = {
+        '1': '1H', 'H': '1H',
+        '2': '1D', 'D': '1D',
+        '3': '1W', 'W': '1W',
+        '4': '1ME', 'M': '1ME'
+    }
     agg_freq = agg_map.get(agg_choice, '1D')
     
-    print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
-    
     # Tryb combined (PSE + ENTSO-E) lub tylko PSE
-    use_combined = ENTSOE_AVAILABLE
+    use_combined = ENTSOE_AVAILABLE and ENTSOE_API_KEY
+    
+    if use_combined:
+        print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
+        print("   Tryb: PSE + ENTSO-E (pełne dane)")
+    else:
+        print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
+        print("   Tryb: tylko PSE (podstawowe dane)")
+    
+    df = None
+    fetcher = None
+    analyzer_class = None
+    
     if use_combined:
         try:
             fetcher = CombinedEnergyDataFetcher()
@@ -298,16 +357,25 @@ def option_time_series():
             print(f"⚠️  Błąd trybu combined: {e}")
             print("   Używam tylko danych PSE")
             use_combined = False
+            df = None
     
     if not use_combined:
         fetcher = PSEEnergyDataFetcher()
         df = fetcher.fetch_data(date_from, date_to)
         analyzer_class = EnergyDataAnalyzer
     
-    if df is None or df.empty:
+    if df is None or (hasattr(df, 'empty') and df.empty):
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
-        if not use_combined:
-            df = fetcher.generate_sample_data(date_from, date_to)
+        if not isinstance(fetcher, PSEEnergyDataFetcher):
+            fetcher = PSEEnergyDataFetcher()
+            analyzer_class = EnergyDataAnalyzer
+        df = fetcher.generate_sample_data(date_from, date_to)
+        
+        if df is None or df.empty:
+            print("\n❌ Błąd: Nie udało się wygenerować danych")
+            print("Naciśnij Enter aby kontynuować...")
+            input()
+            return
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     
@@ -345,10 +413,20 @@ def option_full_analysis():
     except Exception:
         pass
     
-    print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
-    
     # Tryb combined (PSE + ENTSO-E) lub tylko PSE
-    use_combined = ENTSOE_AVAILABLE
+    use_combined = ENTSOE_AVAILABLE and ENTSOE_API_KEY
+    
+    if use_combined:
+        print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
+        print("   Tryb: PSE + ENTSO-E (pełne dane)")
+    else:
+        print(f"\n📥 Pobieranie danych dla okresu {date_from} do {date_to}...")
+        print("   Tryb: tylko PSE (podstawowe dane)")
+    
+    df = None
+    fetcher = None
+    analyzer_class = None
+    
     if use_combined:
         try:
             fetcher = CombinedEnergyDataFetcher()
@@ -358,16 +436,25 @@ def option_full_analysis():
             print(f"⚠️  Błąd trybu combined: {e}")
             print("   Używam tylko danych PSE")
             use_combined = False
+            df = None
     
     if not use_combined:
         fetcher = PSEEnergyDataFetcher()
         df = fetcher.fetch_data(date_from, date_to)
         analyzer_class = EnergyDataAnalyzer
     
-    if df is None or df.empty:
+    if df is None or (hasattr(df, 'empty') and df.empty):
         print("⚠️  Nie udało się pobrać danych z API, używam przykładowych danych")
-        if not use_combined:
-            df = fetcher.generate_sample_data(date_from, date_to)
+        if not isinstance(fetcher, PSEEnergyDataFetcher):
+            fetcher = PSEEnergyDataFetcher()
+            analyzer_class = EnergyDataAnalyzer
+        df = fetcher.generate_sample_data(date_from, date_to)
+        
+        if df is None or df.empty:
+            print("\n❌ Błąd: Nie udało się wygenerować danych")
+            print("Naciśnij Enter aby kontynuować...")
+            input()
+            return
     
     print(f"✓ Pobrano {len(df)} rekordów\n")
     

@@ -53,7 +53,7 @@ Aby pobierać szczegółowe dane z ENTSO-E:
 **📖 Szczegółowa instrukcja**: Zobacz [docs/ENTSOE_API_SETUP.md](docs/ENTSOE_API_SETUP.md)
 
 **⚠️  Bez klucza ENTSO-E** system będzie działał z ograniczonymi danymi (tylko PSE).
-
+**👥 Udostępnianie innym**: Zobacz [docs/INSTALACJA_DLA_INNYCH.md](docs/INSTALACJA_DLA_INNYCH.md) - jak przygotować repozytorium do udostępnienia zespołowi.
 ## � Struktura Projektu
 
 ```
@@ -69,6 +69,7 @@ produkcja-energii/
 ├── docs/                             # Dokumentacja
 │   ├── API_EXAMPLES.md              # Przykłady API
 │   ├── ENTSOE_API_SETUP.md          # Konfiguracja ENTSO-E ⭐
+│   ├── INSTALACJA_DLA_INNYCH.md     # Jak udostępnić repozytorium ⭐
 │   ├── QUICK_START.md               # Szybki start
 │   ├── NOTATKI_TECHNICZNE.md        # Notatki techniczne
 │   └── CHANGELOG.md                 # Historia zmian
@@ -238,13 +239,30 @@ Dostępne opcje agregacji:
 
 3. **Duże zakresy dat**: Dla okresów dłuższych niż 7 dni, skrypt automatycznie pobiera dane dzień po dniu, co może zająć więcej czasu.
 
-## 📚 Struktura kodu
+4. **Automatyczne filtrowanie do ostatniego rzeczywistego pomiaru** (od wersji 1.4.1):
+   - Gdy pobierasz dane za dzisiaj, kod automatycznie pokazuje **tylko rzeczywiste pomiary**
+   - API PSE zwraca dane za cały dzień, ale ostatnie mogą być prognostyczne
+   - Przykład: teraz jest 12:20, ale ostatnia aktualizacja PSE była o 11:45
+   - Kod automatycznie odfiltruje dane po 11:45 (prognozy) i pokaże tylko rzeczywiste pomiary
+   - Nie wpływa na dane historyczne (tylko bieżący dzień)
 
+## 📚 Dokumentacja Techniczna
+
+### Moduły aplikacji
 - `pse_energy_scraper.py` - główny moduł z klasami do pobierania i analizy danych
 - `pse_energy_interactive.py` - interaktywny interfejs użytkownika z menu
+- `entsoe_data_fetcher.py` - moduł do pobierania danych z ENTSO-E
+- `combined_energy_data.py` - łączenie danych z PSE i ENTSO-E
 - `quick.py` - szybki interfejs wiersza poleceń
 - `examples.py` - przykłady użycia programistycznego
 - `requirements.txt` - zależności Python
+
+### Dokumentacja dodatkowa
+- [TIMEZONE_SYNC_ANALYSIS.md](docs/TIMEZONE_SYNC_ANALYSIS.md) - **Analiza synchronizacji czasowej PSE ↔ ENTSO-E**
+- [ENTSOE_API_SETUP.md](docs/ENTSOE_API_SETUP.md) - Konfiguracja API ENTSO-E
+- [QUICK_START.md](docs/QUICK_START.md) - Przewodnik szybkiego startu
+- [API_EXAMPLES.md](docs/API_EXAMPLES.md) - Przykłady użycia API
+- [NOTATKI_TECHNICZNE.md](docs/NOTATKI_TECHNICZNE.md) - Szczegóły techniczne
 
 ## 🛠️ Rozwój
 

@@ -1,3 +1,6 @@
+
+
+
 # Nowa struktura projektu PSE
 
 ## ✅ Co zostało zrobione:

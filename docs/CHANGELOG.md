@@ -1,5 +1,67 @@
 # Historia zmian
 
+## Wersja 1.4.1 (2026-02-03)
+
+### 🔧 Poprawki krytyczne
+
+**Problem 1: Parametr $top powodował błąd 400**
+- API PSE **nie obsługuje** parametru `$top` w zapytaniach OData
+- Dodanie tego parametru powodowało błąd: `"Invalid Query Parameter: $top"`
+- Rezultat: brak danych z API, kod używał przykładowych danych
+
+**Rozwiązanie:**
+- ✅ Usunięto parametr `$top` z zapytań do API PSE
+- ✅ API PSE domyślnie zwraca wszystkie rekordy dla pojedynczego dnia (96)
+- ✅ Dla okresów > 1 dzień zachowano pobieranie dzień po dniu (limit ~100 rekordów)
+- ✅ Dane rzeczywiste działają poprawnie!
+
+**Problem 2: Błędna obsługa braku danych w interfejsie**
+- Gdy API nie zwracało danych, kod próbował użyć `len(None)`
+- TypeError: object of type 'NoneType' has no len()
+
+**Rozwiązanie:**
+- ✅ Dodano inicjalizację zmiennych (df, fetcher, analyzer_class)
+- ✅ Poprawiona walidacja przed użyciem len()
+- ✅ Lepsze zarządzanie przełączaniem między trybami PSE/combined
+- ✅ Czytelne komunikaty o błędach
+
+### 🕐 Nowa funkcja - Filtrowanie danych do ostatniego rzeczywistego pomiaru
+
+**Problem:**
+- API PSE zwraca dane za cały dzień, nawet jeśli dzień jeszcze trwa
+- Gdy teraz jest 12:20, ostatnia aktualizacja PSE była o 11:45
+- API zwracało dane do 23:45 (prognozy), zamiast do 11:45 (ostatni rzeczywisty pomiar)
+
+**Rozwiązanie:**
+- ✅ Automatyczne wykrywanie ostatniego rzeczywistego pomiaru w danych
+- ✅ Filtrowanie tylko do aktualnie dostępnych danych (z 15 min buforem)
+- ✅ Usuwanie danych prognostycznych/przyszłościowych
+- ✅ Działa tylko dla bieżącego dnia (nie wpływa na dane historyczne)
+- ✅ Nie wymaga dodatkowych bibliotek (używa wbudowanych w pandas)
+
+**Przykład:**
+```
+Teraz:     2026-02-03 12:20
+PSE API:   ostatnia aktualizacja 11:45
+Przed:     96 pomiarów (00:00 - 23:45) ❌ zawiera prognozy
+Po:        48 pomiarów (00:00 - 11:45) ✅ tylko rzeczywiste dane
+ℹ️  Odfiltrowano 48 przyszłościowych pomiarów (ostatni rzeczywisty pomiar: 2026-02-03 11:45)
+```
+
+**Dokumentacja:**
+- ✅ Zaktualizowano COMMANDS.md - nowa sekcja o limicie 100
+- ✅ Zaktualizowano NOTATKI_TECHNICZNE.md - szczegóły OData
+- ✅ Dodano FAQ_LIMIT_100.md - kompletny przewodnik rozwiązywania problemu
+
+**Pliki zmienione:**
+- `src/pse_energy_scraper.py` - parametry OData i weryfikacja
+- `src/pse_energy_interactive.py` - poprawiona obsługa błędów gdy brak danych API
+- `docs/COMMANDS.md` - sekcja rozwiązywania problemów
+- `docs/NOTATKI_TECHNICZNE.md` - ograniczenia API
+- `docs/FAQ_LIMIT_100.md` - nowy dokument
+
+---
+
 ## Wersja 1.4.0 (2026-01-19)
 
 ### 🎉 Główne zmiany - Integracja ENTSO-E

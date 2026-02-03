@@ -11,7 +11,22 @@
 pip install -r requirements.txt
 ```
 
-### 2. Test połączenia z API
+### 2. Konfiguracja ENTSO-E API (opcjonalne - dla pełnych danych)
+```bash
+# Uruchom kreatora konfiguracji
+./run.sh setup
+
+# Lub ręcznie:
+# 1. Skopiuj szablon
+cp .env.example .env
+
+# 2. Edytuj .env i wpisz swój klucz API z https://transparency.entsoe.eu/
+nano .env
+```
+
+📖 **Szczegółowa instrukcja**: [docs/ENTSOE_API_SETUP.md](docs/ENTSOE_API_SETUP.md)
+
+### 3. Test połączenia z API
 ```bash
 ./run.sh test
 ```
@@ -24,13 +39,14 @@ pip install -r requirements.txt
 ```bash
 # Uruchom menu interaktywne
 ./run.sh interactive
-
 # lub krócej:
 ./run.sh i
 
 # lub bezpośrednio:
 python3 src/pse_energy_interactive.py
 ```
+
+**💡 Wskazówka**: W trybie interaktywnym automatycznie używa pełnych danych (PSE + ENTSO-E), jeśli klucz API jest skonfigurowany!
 
 ---
 
@@ -228,6 +244,33 @@ curl -I https://api.raporty.pse.pl/api/his-wlk-cal
 - Sprawdź czy data jest poprawna (YYYY-MM-DD)
 - Spróbuj wcześniejszego okresu
 
+### Otrzymujesz tylko 100 rekordów zamiast pełnych danych
+**Problem**: API PSE ma limit ~100 rekordów na jedno zapytanie OData.
+
+**Rozwiązanie automatyczne** (aktualna wersja):
+- Kod automatycznie pobiera dane **dzień po dniu** dla okresów > 1 dzień
+- Automatyczne filtrowanie danych do ostatniej aktualizacji PSE
+- Ostrzeżenia gdy wykryto możliwy limit API
+
+**Jeśli nadal masz problem**:
+1. Zaktualizuj kod: `git pull` lub pobierz najnowszą wersję
+2. Upewnij się że używasz wersji z 2026-02-03 lub nowszej
+3. Dla pewności zawsze używaj trybu interaktywnego: `./run.sh i`
+
+### Dane za dzisiejszy dzień pokazują przyszłość
+**To normalne!** Kod automatycznie filtruje dane:
+- PSE publikuje z opóźnieniem ~30-45 minut
+- Gdy teraz jest 12:30, ostatni pomiar to ~11:45
+- **Automatycznie** pokazywane są tylko rzeczywiste dane
+
+**Przykład**:
+```
+Teraz: 2026-02-03 12:30
+API zwraca: 96 pomiarów (00:00-23:45)
+Kod filtruje: 48 pomiarów (00:00-11:45) ✅
+Komunikat: "Odfiltrowano 48 pomiarów z przyszłości"
+```
+
 ---
 
 ## 📞 Więcej Informacji
@@ -271,4 +314,4 @@ curl -I https://api.raporty.pse.pl/api/his-wlk-cal
 
 ---
 
-**Ostatnia aktualizacja:** 16 stycznia 2026
+**Ostatnia aktualizacja:** 3 lutego 2026
